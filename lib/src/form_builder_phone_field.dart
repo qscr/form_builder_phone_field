@@ -117,6 +117,10 @@ class FormBuilderPhoneField extends FormBuilderField<String> {
   /// By default this widget is `const Icon(Icons.arrow_drop_down)`
   final Widget? iconSelector;
 
+  final Widget? prefix;
+
+  final void Function(bool isFocused)? onFocusChanged;
+
   /// Creates field for international phone number input.
   FormBuilderPhoneField({
     Key? key,
@@ -132,6 +136,7 @@ class FormBuilderPhoneField extends FormBuilderField<String> {
     AutovalidateMode autovalidateMode = AutovalidateMode.disabled,
     VoidCallback? onReset,
     FocusNode? focusNode,
+    this.onFocusChanged,
     this.obscureText = false,
     this.textCapitalization = TextCapitalization.none,
     this.scrollPadding = const EdgeInsets.all(20.0),
@@ -184,6 +189,7 @@ class FormBuilderPhoneField extends FormBuilderField<String> {
     this.priorityList,
     this.itemBuilder,
     this.iconSelector,
+    this.prefix,
   })  : assert(initialValue == null || controller == null),
         super(
           key: key,
@@ -200,6 +206,8 @@ class FormBuilderPhoneField extends FormBuilderField<String> {
           focusNode: focusNode,
           builder: (FormFieldState<String?> field) {
             final state = field as _FormBuilderPhoneFieldState;
+
+            print(state._isFocused);
 
             return InputDecorator(
               decoration: state.decoration,
@@ -222,13 +230,6 @@ class FormBuilderPhoneField extends FormBuilderField<String> {
                           state._selectedDialogCountry,
                         ),
                         const SizedBox(width: 10),
-                        Text(
-                          '+${state._selectedDialogCountry.phoneCode} ',
-                          style: Theme.of(state.context)
-                              .textTheme
-                              .subtitle1!
-                              .merge(style),
-                        ),
                       ],
                     ),
                   ),
@@ -241,8 +242,16 @@ class FormBuilderPhoneField extends FormBuilderField<String> {
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         errorBorder: InputBorder.none,
-                        hintText: decoration.hintText,
-                        hintStyle: decoration.hintStyle,
+                        prefix: state._isFocused
+                            ? Text(
+                                "+${state._selectedDialogCountry.phoneCode}",
+                                style: style,
+                              )
+                            : null,
+                        hintText: !state._isFocused
+                            ? state._tempValue ?? "+${state._selectedDialogCountry.phoneCode}"
+                            : null,
+                        hintStyle: style,
                       ),
                       onChanged: (_) {
                         state.invokeChange();
@@ -288,27 +297,44 @@ class FormBuilderPhoneField extends FormBuilderField<String> {
       _FormBuilderPhoneFieldState();
 }
 
-class _FormBuilderPhoneFieldState
-    extends FormBuilderFieldState<FormBuilderPhoneField, String> {
+class _FormBuilderPhoneFieldState extends FormBuilderFieldState<FormBuilderPhoneField, String> {
   late TextEditingController _effectiveController;
   late Country _selectedDialogCountry;
+  bool _isFocused = false;
+  String? _tempValue;
 
   String get fullNumber {
     // When there is no phone number text, the field is empty -- the country
     // prefix is only prepended when a phone number is specified.
     final phoneText = _effectiveController.text;
-    return phoneText.isNotEmpty
-        ? '+${_selectedDialogCountry.phoneCode}$phoneText'
-        : phoneText;
+    return phoneText.isNotEmpty ? '+${_selectedDialogCountry.phoneCode}$phoneText' : phoneText;
   }
 
   @override
   void initState() {
     super.initState();
     _effectiveController = widget.controller ?? TextEditingController();
-    _selectedDialogCountry = CountryPickerUtils.getCountryByIsoCode(
-        widget.defaultSelectedCountryIsoCode);
+    _selectedDialogCountry =
+        CountryPickerUtils.getCountryByIsoCode(widget.defaultSelectedCountryIsoCode);
     _parsePhone();
+    widget.focusNode?.addListener(() {
+      setState(() {
+        if (_isFocused && !widget.focusNode!.hasFocus) {
+          final value = _effectiveController.text;
+          _tempValue = "+${_selectedDialogCountry.phoneCode}$value";
+          _effectiveController.text = "";
+        }
+        if (!_isFocused && widget.focusNode!.hasFocus && _tempValue != null) {
+          final offset = _selectedDialogCountry.phoneCode.length + 1;
+          if ((_tempValue?.length ?? 0) >= offset) {
+            _effectiveController.text =
+                _tempValue!.substring(_selectedDialogCountry.phoneCode.length + 1);
+          }
+        }
+        _isFocused = widget.focusNode!.hasFocus;
+        widget.onFocusChanged?.call(_isFocused);
+      });
+    });
   }
 
   @override
@@ -324,8 +350,8 @@ class _FormBuilderPhoneFieldState
   void reset() {
     super.reset();
     _effectiveController = widget.controller ?? TextEditingController();
-    _selectedDialogCountry = CountryPickerUtils.getCountryByIsoCode(
-        widget.defaultSelectedCountryIsoCode);
+    _selectedDialogCountry =
+        CountryPickerUtils.getCountryByIsoCode(widget.defaultSelectedCountryIsoCode);
     _parsePhone();
   }
 
@@ -334,8 +360,7 @@ class _FormBuilderPhoneFieldState
       try {
         final parseResult = await PhoneNumberUtil().parse(initialValue!);
         setState(() {
-          _selectedDialogCountry =
-              CountryPickerUtils.getCountryByIsoCode(parseResult.regionCode);
+          _selectedDialogCountry = CountryPickerUtils.getCountryByIsoCode(parseResult.regionCode);
         });
         _effectiveController.text = parseResult.nationalNumber;
       } catch (error) {
@@ -403,10 +428,8 @@ class _FormBuilderPhoneFieldState
           ),
           child: CountryPickerDialog(
             titlePadding: widget.titlePadding ?? const EdgeInsets.all(8.0),
-            searchCursorColor:
-                widget.cursorColor ?? Theme.of(context).primaryColor,
-            searchInputDecoration:
-                InputDecoration(hintText: widget.searchText ?? 'Search...'),
+            searchCursorColor: widget.cursorColor ?? Theme.of(context).primaryColor,
+            searchInputDecoration: InputDecoration(hintText: widget.searchText ?? 'Search...'),
             isSearchable: widget.isSearchable ?? true,
             title: widget.dialogTitle ??
                 Text(
